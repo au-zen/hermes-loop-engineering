@@ -26,11 +26,28 @@ hermes-loop status                          # 调用 quick_status.py 查看状�
 全局选项（必须出现在命令之前）：`--json`、`--workdir`、`--scripts`、`--db`、
 `--continue-on-degraded`。
 
+### 环境变量
+
+显式参数优先级最高；未给出时回落环境变量，再回落默认值：
+
+| 变量 | 对应 | 默认 |
+|---|---|---|
+| `HERMES_LOOP_WORKDIR` | `--workdir` | `~/.hermes` |
+| `HERMES_LOOP_SCRIPTS` | `--scripts` | `<workdir>/scripts` |
+| `HERMES_LOOP_DB` | `--db` | `~/.hermes/db/loop_state.duckdb` |
+
 ### 退出码
 
 `0` 成功；`2` 用法错误（含未知角色）；`3` unknown；`4` degraded；
 `5` wrapper 启动前/启动期失败；`128+N` 子进程被信号 N 杀死；
 `130` SIGINT。子进程非零退出码**原样透传**。
+
+> **契约（重要）：退出码只能保证「`0` = 未失败，非 `0` = 未成功」这一二元判断。**
+> 因为子进程非零码原样透传，`2`/`3`/`4` 会与 CLI 约定含义**发生冲突**
+> —— 脚本自己返回 `2` 与 CLI 的「用法错误」无法从退出码区分。
+> **凡需要区分具体状态（尤其是 CLI 状态 vs 子进程自报状态）时，必须使用 `--json`。**
+> 补充：`skipped`/`dry-run` 在 v1 注册表中不可达；一旦未来引入 `sentinel` 角色，
+> `0` 将不再唯一对应成功，届时同样以 `--json` 为准。
 
 ### `--json` 契约
 
