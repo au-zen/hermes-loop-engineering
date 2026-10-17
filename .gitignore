@@ -16,3 +16,6 @@ htmlcov/
 .idea/
 .vscode/
 .worktrees/
+
+# Local-only tooling — never published (contains local leak keywords)
+/scripts/check_leaks.sh
