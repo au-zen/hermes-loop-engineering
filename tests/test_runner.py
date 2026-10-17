@@ -56,3 +56,11 @@ def test_timestamps_are_set(tmp_path):
     _mk(tmp_path, 'exit 0\n')
     r = run_role(COLLECTOR, [], _cfg(tmp_path))
     assert r.started_at and r.finished_at
+
+
+def test_child_stderr_is_inherited_not_captured(tmp_path, capfd):
+    # Fix 1：子进程 stderr 不捕获（stderr=None），诊断必须到达父进程 stderr。
+    _mk(tmp_path, 'echo "BOOM" 1>&2\nexit 0\n')
+    r = run_role(COLLECTOR, [], _cfg(tmp_path))
+    assert r.exit_code == 0
+    assert "BOOM" in capfd.readouterr().err

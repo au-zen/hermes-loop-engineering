@@ -76,11 +76,13 @@ def run_role(spec: RoleSpec, child_args: list[str], cfg: Config) -> Result:
 
     started_at = _now()
 
-    # 2/3. 以参数数组启动子进程，捕获 stdout/stderr，注入 loop 环境变量。
+    # 2/3. 以参数数组启动子进程：仅捕获 stdout，stderr 继承父进程
+    # （子进程诊断直接落到 CLI 的 stderr；--json 的 stdout 保持纯净）。
     try:
         completed = subprocess.run(
             [wrapper, *child_args],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=None,
             text=True,
             env=child_env(cfg),
             cwd=cfg.workdir,
