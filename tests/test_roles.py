@@ -37,13 +37,10 @@ def test_registry_has_exactly_ten_roles():
         "decide","learn","notify","trust_audit","daily_diagnostic",
     }
 
-def test_collector_is_exit_code_signal_and_run_eligible():
+def test_collector_is_exit_code_signal():
     r = ROLES["collector"]
     assert r.wrapper == "cron_loop_collector.sh"
-    assert r.business_signal == "exit_code" and r.run_eligible is True
-
-def test_only_collector_is_run_eligible():
-    assert [n for n, r in ROLES.items() if r.run_eligible] == ["collector"]
+    assert r.business_signal == "exit_code"
 
 def test_fixer_and_trust_audit_are_candidate():
     assert ROLES["fixer"].business_signal == "candidate"
@@ -64,4 +61,4 @@ def test_unknown_role_raises():
 def test_invalid_business_signal_is_rejected_at_construction():
     # BUSINESS_SIGNALS 不再是"仅供测试引用"的常量：构造期即强制校验。
     with pytest.raises(ValueError):
-        RoleSpec("x", "w.sh", "bogus", False)
+        RoleSpec("x", "w.sh", "bogus")

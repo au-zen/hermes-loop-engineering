@@ -5,7 +5,7 @@ R4（hermeticity）：每个 ``main(...)`` 都显式传 ``--workdir <tmp_path>``
 （外加 ``--scripts``/``--db``），确保不解析或触碰真实 ``~/.hermes``。
 
 本文件同时用 ``monkeypatch`` 直接驱动 ``run_sequence``，逐一锁定策略表的每个
-``Status`` 分支（含 R8 的 ``dry_run``，注册表内无角色能自然产出它）。
+``Status`` 分支。
 """
 import json
 
@@ -103,15 +103,6 @@ def test_run_sequence_empty_raises_usage_error(tmp_path):
         cli.run_sequence([], _cfg(tmp_path), False, False)
 
 
-def test_skipped_stops_sequence_even_with_zero_exit(monkeypatch, tmp_path):
-    calls = _patch_run_role(
-        monkeypatch,
-        [_res("collector", Status.SKIPPED, 0), _res("collector", Status.SUCCESS, 0)],
-    )
-    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
-    assert rc == 0 and len(calls) == 1
-
-
 def test_degraded_stops_by_default(monkeypatch, tmp_path):
     calls = _patch_run_role(
         monkeypatch,
@@ -130,13 +121,28 @@ def test_degraded_continues_with_flag(monkeypatch, tmp_path):
     assert rc == 0 and len(calls) == 2
 
 
-def test_dry_run_stops_sequence(monkeypatch, tmp_path):  # R8
-    calls = _patch_run_role(
-        monkeypatch,
-        [_res("collector", Status.DRY_RUN, 0), _res("collector", Status.SUCCESS, 0)],
-    )
-    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
-    assert rc == 0 and len(calls) == 1
+def test_run_default_mode_writes_error_to_stderr(monkeypatch, tmp_path, capsys):
+    # issue #2：run 默认模式必须把 result.error 落到 stderr（否则失败无可读原因）。
+    def fake(spec, child_args, cfg):
+        return Result(
+            role=spec.name,
+            status=Status.UNKNOWN,
+            child_exit_code=None,
+            exit_code=5,
+            loop_status=None,
+            started_at="t0",
+            finished_at="t1",
+            error="无法启动 wrapper：/nope.sh",
+            wrapper_path="/nope.sh",
+            child_stdout="",
+        )
+
+    monkeypatch.setattr(cli, "run_role", fake)
+    rc = cli.run_sequence(["collector"], _cfg(tmp_path), False, False)
+    captured = capsys.readouterr()
+    assert rc == 5
+    assert "error:" in captured.err
+    assert "无法启动 wrapper" in captured.err
 
 
 def test_unknown_stops_and_returns_step_exit_code(monkeypatch, tmp_path):

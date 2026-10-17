@@ -37,30 +37,28 @@ class Status(str, Enum):
     DEGRADED = "degraded"
     FAILURE = "failure"
     UNKNOWN = "unknown"
-    SKIPPED = "skipped"
-    DRY_RUN = "dry_run"
 
 
 #: 哨兵 → (状态, CLI 退出码)；未列出者一律 ``unknown``。
+#: 权威词表为 4 值 ``ok|fallback_ok|degraded|failed``（与 reader 对齐）。
+#: v1 无 ``sentinel`` 角色，故本表当前不可达；待首个 sentinel 角色出现时再定稿。
 _SENTINEL_MAP: dict[str, tuple[Status, int]] = {
     "ok": (Status.SUCCESS, 0),
     "fallback_ok": (Status.SUCCESS, 0),
     "degraded": (Status.DEGRADED, EXIT_DEGRADED),
     "failed": (Status.FAILURE, 1),
-    "skipped": (Status.SKIPPED, 0),
-    "dry-run": (Status.DRY_RUN, 0),
 }
 
 
 def parse_loop_status(stdout: str) -> str | None:
     """返回 ``stdout`` 中 **最后一条** ``LOOP_STATUS`` 哨兵的原始值。
 
-    末条生效与既有 ``底层 reader`` 的 ``vals[-1]`` 行为一致。
+    末条生效与既有底层 reader 的 ``vals[-1]`` 行为一致。
     词表说明行（取值后含 ``|``，如 ``LOOP_STATUS: ok|fallback_ok|degraded``）
     不是真实哨兵，予以跳过（issue #1）。无匹配时返回 ``None``。
 
     :param stdout: 子进程标准输出。
-    :return: 哨兵原始文本（如 ``"dry-run"``），或 ``None``。
+    :return: 哨兵原始文本（如 ``"degraded"``），或 ``None``。
     """
     last: str | None = None
     for match in _LOOP_STATUS_RE.finditer(stdout):

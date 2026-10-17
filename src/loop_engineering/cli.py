@@ -227,12 +227,11 @@ def run_sequence(
       ``{"command": "run", "steps": [<result.to_dict()>, ...]}``
       （R9；含最终停止的那一步）。``steps`` 之外的任何内容都不写 stdout。
 
-    §9.2 策略表（含 R8）：
+    §9.2 策略表：
 
     * ``success`` → 继续；
     * ``degraded`` → 仅当 ``continue_on_degraded`` 为真时继续，否则停止；
-    * ``failure`` / ``unknown`` / ``skipped`` / ``dry_run`` → 停止（``dry_run``
-      不在 §9.2 表内，保守视为非成功）。
+    * ``failure`` / ``unknown`` → 停止。
 
     :param roles: 显式角色名序列（首个失败即终止后续角色）。
     :param cfg: 解析后的运行配置。
@@ -262,6 +261,10 @@ def run_sequence(
         if not emit_json:
             # 默认模式仍逐步透传子进程 stdout。
             sys.stdout.write(result.child_stdout or "")
+            # issue #2：默认模式下启动失败等 error 也必须在 stderr 可见，
+            # 否则失败只表现为一个非 0 退出码、无可读原因（fail-fast 缺口）。
+            if result.error:
+                print(f"error: {result.error}", file=sys.stderr)
 
         # §9.2 策略表：每个 Status 分支显式处理（R8 要求穷尽枚举）。
         status = result.status
@@ -271,7 +274,7 @@ def run_sequence(
         if status is Status.DEGRADED and continue_on_degraded:
             last_exit_code = result.exit_code
             continue
-        # FAILURE / UNKNOWN / SKIPPED / DRY_RUN → 立即停止，透传该步退出码。
+        # FAILURE / UNKNOWN → 立即停止，透传该步退出码。
         last_exit_code = result.exit_code
         break
 

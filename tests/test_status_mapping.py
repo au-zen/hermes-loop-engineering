@@ -20,8 +20,6 @@ def test_none_and_candidate_are_unknown_on_zero():
     ("fallback_ok", (Status.SUCCESS, 0)),
     ("degraded", (Status.DEGRADED, 4)),
     ("failed", (Status.FAILURE, 1)),
-    ("skipped", (Status.SKIPPED, 0)),
-    ("dry-run", (Status.DRY_RUN, 0)),
     (None, (Status.UNKNOWN, 3)),
     ("weird", (Status.UNKNOWN, 3)),
 ])

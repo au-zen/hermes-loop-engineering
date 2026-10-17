@@ -56,6 +56,8 @@ hermes-loop --json <role|run|status>        # 机器可读输出
 - 取值类选项的 `--opt value` 形式，取值**不能以 `-` 开头**（避免吞掉下一个 flag）；需要时用 `--opt=value`。
 - 退出码只能保证「`0` = 未失败，非 `0` = 未成功」。子进程非零码原样透传，`2/3/4` 会与 CLI 约定含义冲突——**要区分具体状态必须用 `--json`**。
 - 读到显式 `LOOP_STATUS: failed` 哨兵即按失败处理，即使退出码为 `0`。
+- **`none`/`candidate` 角色即使脚本成功也判为 `unknown`（退出码 3）**——CLI 只区分「进程成功」与「业务状态已知」，这两类角色在 v1 没有可信业务信号。因此 `run` 遇 `unknown` 即停止，**`run` 只适合 `exit_code` 角色（v1 仅 `collector`）**；把这些角色放进 `run` 会每次都停在第 3 码。
+- `LOOP_STATUS` 权威词表为 4 值：`ok|fallback_ok|degraded|failed`。v1 注册表内**没有 `sentinel` 角色**，故该分支当前不可达；缺失或未知哨兵一律 `unknown`(3)。词表待首个真正输出哨兵的角色出现时再定稿（issue #1）。
 
 ## 验证方法
 

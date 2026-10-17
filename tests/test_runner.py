@@ -14,8 +14,8 @@ def _mk(tmp_path, body, name="w.sh"):
 def _cfg(tmp_path):
     return Config(str(tmp_path), str(tmp_path), str(tmp_path / "x.duckdb"))
 
-COLLECTOR = RoleSpec("collector", "w.sh", "exit_code", True)
-SENTINEL  = RoleSpec("synth", "w.sh", "sentinel", True)
+COLLECTOR = RoleSpec("collector", "w.sh", "exit_code")
+SENTINEL  = RoleSpec("synth", "w.sh", "sentinel")
 
 def test_exit_zero_is_success_for_exit_code_signal(tmp_path):
     _mk(tmp_path, 'echo hi\nexit 0\n')

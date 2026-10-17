@@ -92,8 +92,19 @@ hermes-loop status                          # 调用配置的状态脚本查看�
 > 因为子进程非零码原样透传，`2`/`3`/`4` 会与 CLI 约定含义**发生冲突**
 > —— 脚本自己返回 `2` 与 CLI 的「用法错误」无法从退出码区分。
 > **凡需要区分具体状态（尤其是 CLI 状态 vs 子进程自报状态）时，必须使用 `--json`。**
-> 补充：`skipped`/`dry-run` 在 v1 注册表中不可达；一旦未来引入 `sentinel` 角色，
-> `0` 将不再唯一对应成功，届时同样以 `--json` 为准。
+> 补充：`LOOP_STATUS` 权威词表为 4 值（`ok|fallback_ok|degraded|failed`），
+> v1 注册表内无 `sentinel` 角色；`none`/`candidate` 角色一律 `unknown`(3)。
+
+### 角色与信号来源
+
+| 角色 | 信号来源 | 说明 |
+|---|---|---|
+| `collector` | `exit_code` | 唯一以脚本退出码判定的角色；失败路径确有非 0 退出 |
+| `fixer`、`trust_audit` | `candidate` | 无可信业务信号 → 一律 `unknown`(3) |
+| 其余 7 个 | `none` | 无可信业务信号 → 一律 `unknown`(3) |
+
+**推论：`run` 只适合 `exit_code` 角色（v1 仅 `collector`）。** 其余角色放进 `run`
+会因 `unknown` 立即停止并返回 `3`——这是刻意的「绝不把未知当成功」。
 
 ### `--json` 契约
 
@@ -107,6 +118,24 @@ hermes-loop status                          # 调用配置的状态脚本查看�
 * 不设超时（无 timeout）。
 * `status` 以 `uv run python` 调用配置的状态脚本（无 `.sh` wrapper）。
 * SIGINT（`130`）不负责清理子进程，超出 v1 范围。
+
+## 发布前检查（泄露门禁）
+
+推送前必须运行本地泄露检查（通用模式 + 本地标识符清单）：
+
+```bash
+bash scripts/check_leaks.sh                       # 扫描工作区（git 追踪文件）
+bash scripts/check_leaks.sh <remote>..<local>     # 扫描本次要推送的提交
+```
+
+- `scripts/check_leaks.sh` 只含**通用**模式；具体标识符放在被 gitignore 的
+  `scripts/leak_denylist.local` 中，脚本运行时读取（该文件不进仓库、也不进 CI）。
+- `scripts/pre-push` 是可选的本地 hook：对**本次推送范围**逐个跑检查，失败即中止
+  推送。安装：`ln -sf ../../scripts/pre-push .git/hooks/pre-push`。
+- **hook 只是本地约束**，换机器或 `--no-verify` 即失效，所以 CI
+  （`.github/workflows/leak-check.yml`）会在 push / PR 时再跑一遍**通用模式**检查。
+
+> 教训：泄露检查脚本本身不得嵌入具体标识符——否则它就把清单变成了新的泄露面。
 
 ## 约定
 
