@@ -4,29 +4,31 @@ Hermes Loop 的统一 CLI 薄调度器。
 
 把一组 loop 角色脚本收敛为单一入口 `hermes-loop`：**不改变底层脚本行为、不迁移调度配置、不重新实现 Agent 调用**。CLI 只负责三件事——解析路径、启动前校验、把执行结果如实转换为退出码与结构化输出。
 
-## Hermes Skill 使用
+## 作为 Hermes Skill / Tap 使用
 
-本仓库作为 Hermes skill 部署。安装：
+本仓库同时是一个 Hermes skill tap：skill 目录为 `skills/hermes-loop-engineering/`（**只含 `SKILL.md`，不含 prompts**）。
+
+> **skill 只负责说明，CLI 需另装。** 从 GitHub 安装 skill 时只会复制被引用的 skill 文件，Python 包本体不会随之安装。
+
+安装 CLI：
 
 ```bash
-# 1. 克隆到 Hermes skills 目录
-git clone <repo-url> ~/.hermes/skills/automation/hermes-loop-engineering
-
-# 2. 安装依赖
-cd ~/.hermes/skills/automation/hermes-loop-engineering && uv sync
-
-# 3. 全局安装 CLI（可选，用于手动调试）
-uv tool install .
+uv tool install git+https://github.com/au-zen/hermes-loop-engineering
 ```
 
-### Cron Job 配置
+安装 skill（任选其一；tap 搜索在某些版本不稳定，推荐直接按仓库路径安装）：
 
 ```bash
-# no_agent job（通过 hermes-loop-*.sh wrapper 调用）
-hermes cron edit <job_id> --script "hermes-loop-collector.sh"
+hermes skills install au-zen/hermes-loop-engineering/skills/hermes-loop-engineering
+# 或：
+hermes skills tap add au-zen/hermes-loop-engineering
+```
 
-# LLM agent job（通过 skill + prompt 驱动）
-hermes cron edit <job_id> --skill "automation/hermes-loop-engineering"
+### Cron 配置
+
+```bash
+# no_agent job（经 hermes-loop-*.sh wrapper 调用 CLI）
+hermes cron edit <job_id> --script "hermes-loop-collector.sh"
 ```
 
 ### 手动执行
