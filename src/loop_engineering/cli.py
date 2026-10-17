@@ -89,10 +89,24 @@ def parse_args(argv: list[str]) -> ParsedArgs:
                 setattr(result, _FLAG_OPTIONS[token], True)
                 index += 1
                 continue
+            # `--opt=value` 形式：取值以 `-` 开头时唯一的合法写法。
+            if token.startswith("--") and "=" in token:
+                name, _, value = token.partition("=")
+                if name in _VALUE_OPTIONS:
+                    setattr(result, _VALUE_OPTIONS[name], value)
+                    index += 1
+                    continue
             if token in _VALUE_OPTIONS:
                 if index + 1 >= total:
                     raise UsageError(f"{token} 需要一个取值")
-                setattr(result, _VALUE_OPTIONS[token], argv[index + 1])
+                value = argv[index + 1]
+                if value.startswith("-"):
+                    # 不静默吞掉下一个 flag（如 `--scripts --json`）。
+                    raise UsageError(
+                        f"{token} 的取值不能以 `-` 开头：{value!r}"
+                        f"（如确为路径请用 {token}={value}）"
+                    )
+                setattr(result, _VALUE_OPTIONS[token], value)
                 index += 2
                 continue
             if token.startswith("-"):
@@ -108,14 +122,25 @@ def parse_args(argv: list[str]) -> ParsedArgs:
             index += 1
             continue
 
-        # 命令之后：``--`` 开启透传，其余选项视为用法错误。
+        # 命令之后：仅 `role` 支持 `--` 透传；位置参数仅 `run` 接受。
         if token == "--":
+            if result.command != "role":
+                raise UsageError(
+                    f"`{result.command}` 不支持 `--` 透传"
+                    "（`run` 把同一串参数发给多个角色语义不明）"
+                )
             in_child_args = True
             index += 1
             continue
         if token.startswith("-"):
             raise UsageError(
                 f"选项 {token} 必须放在命令之前，或使用 `--` 透传给角色"
+            )
+        if result.command != "run":
+            # 每个角色命令用法为 `<role> [-- <args>]`；第二个位置参数是用法错误。
+            raise UsageError(
+                f"命令 {result.command!r} 不接受额外位置参数：{token!r}"
+                "（用法：<role> [-- <args>]）"
             )
         result.roles.append(token)
         index += 1
