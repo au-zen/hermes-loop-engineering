@@ -119,24 +119,6 @@ hermes-loop status                          # 调用配置的状态脚本查看�
 * `status` 以 `uv run python` 调用配置的状态脚本（无 `.sh` wrapper）。
 * SIGINT（`130`）不负责清理子进程，超出 v1 范围。
 
-## 发布前检查（泄露门禁）
-
-推送前必须运行本地泄露检查（通用模式 + 本地标识符清单）：
-
-```bash
-bash scripts/check_leaks.sh                       # 扫描工作区（git 追踪文件）
-bash scripts/check_leaks.sh <remote>..<local>     # 扫描本次要推送的提交
-```
-
-- `scripts/check_leaks.sh` 只含**通用**模式；具体标识符放在被 gitignore 的
-  `scripts/leak_denylist.local` 中，脚本运行时读取（该文件不进仓库、也不进 CI）。
-- `scripts/pre-push` 是可选的本地 hook：对**本次推送范围**逐个跑检查，失败即中止
-  推送。安装：`ln -sf ../../scripts/pre-push .git/hooks/pre-push`。
-- **hook 只是本地约束**，换机器或 `--no-verify` 即失效，所以 CI
-  （`.github/workflows/leak-check.yml`）会在 push / PR 时再跑一遍**通用模式**检查。
-
-> 教训：泄露检查脚本本身不得嵌入具体标识符——否则它就把清单变成了新的泄露面。
-
 ## 约定
 
 1. 状态在 CLI 边界转换；底层脚本的状态约定与退出码惯例**保持不变**。
@@ -145,3 +127,7 @@ bash scripts/check_leaks.sh <remote>..<local>     # 扫描本次要推送的提�
 3. 启动子进程前校验 wrapper 是否存在且可执行，否则以启动失败退出（`5`）。
 4. 只要读到显式 `LOOP_STATUS: failed` 哨兵即按失败处理（即使退出码为 `0`），
    绝不把失败伪装成成功；词表说明行（取值后含 `|`）不算哨兵。
+
+## 贡献 / 维护
+
+贡献流程与发布前泄露门禁见 [CONTRIBUTING.md](CONTRIBUTING.md)。
