@@ -29,6 +29,14 @@ class RoleSpec:
     business_signal: str
     run_eligible: bool
 
+    def __post_init__(self) -> None:
+        # 构造期即校验，避免 ``BUSINESS_SIGNALS`` 沦为无人消费的常量。
+        if self.business_signal not in BUSINESS_SIGNALS:
+            raise ValueError(
+                f"非法 business_signal：{self.business_signal!r}"
+                f"（角色 {self.name!r}；合法取值 {sorted(BUSINESS_SIGNALS)}）"
+            )
+
 
 class UnknownRoleError(Exception):
     """请求的角色不在白名单注册表中。"""

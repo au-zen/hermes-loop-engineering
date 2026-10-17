@@ -2,6 +2,7 @@ import pytest
 from loop_engineering.roles import (
     BUSINESS_SIGNALS,
     ROLES,
+    RoleSpec,
     get_role,
     UnknownRoleError,
 )
@@ -58,3 +59,9 @@ def test_daily_diagnostic_wrapper_is_the_diag_wrapper():
 def test_unknown_role_raises():
     with pytest.raises(UnknownRoleError):
         get_role("analyzer")  # 纯 Agent 角色，不在白名单
+
+
+def test_invalid_business_signal_is_rejected_at_construction():
+    # BUSINESS_SIGNALS 不再是"仅供测试引用"的常量：构造期即强制校验。
+    with pytest.raises(ValueError):
+        RoleSpec("x", "w.sh", "bogus", False)
