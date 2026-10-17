@@ -11,8 +11,10 @@
 
 * 子进程被信号杀死（``returncode < 0``）时映射为 ``128 + N``，**绝不**把负数
   作为进程退出码返回。
-* 启动前失败（:class:`~loop_engineering.config.StartError`）与运行期异常
-  （``OSError`` 等）都归为 ``exit_code=5`` / ``status=UNKNOWN``，永不崩栈。
+* 启动前失败（:class:`~loop_engineering.config.StartError`）与启动期 ``OSError``
+  （cwd 缺失 / 权限等）都归为 ``exit_code=5`` / ``status=UNKNOWN``，永不崩栈；
+  其余编程错误**不**吞掉，直接带 traceback 抛出。
+* 子进程输出以 ``errors="replace"`` 解码，非 UTF-8 字节不会变成启动失败。
 * v1 **不设超时**。
 """
 
@@ -84,10 +86,12 @@ def run_role(spec: RoleSpec, child_args: list[str], cfg: Config) -> Result:
             stdout=subprocess.PIPE,
             stderr=None,
             text=True,
+            errors="replace",  # 非 UTF-8 输出按替换字符解码，绝不伪装成启动失败
             env=child_env(cfg),
             cwd=cfg.workdir,
         )
-    except Exception as exc:  # OSError（权限/cwd 缺失）等启动期异常，绝不崩栈
+    except OSError as exc:
+        # 仅启动期 OSError（cwd 缺失 / 权限等）归一化为启动失败；编程错误照常抛出。
         return _failure_result(spec, f"wrapper 启动失败：{exc}", wrapper)
 
     finished_at = _now()

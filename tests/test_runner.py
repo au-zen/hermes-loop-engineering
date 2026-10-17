@@ -64,3 +64,31 @@ def test_child_stderr_is_inherited_not_captured(tmp_path, capfd):
     r = run_role(COLLECTOR, [], _cfg(tmp_path))
     assert r.exit_code == 0
     assert "BOOM" in capfd.readouterr().err
+
+
+def test_non_utf8_child_output_does_not_become_start_failure(tmp_path):
+    # 非 UTF-8 子进程输出必须以 errors="replace" 解码，绝不伪装成启动失败。
+    _mk(tmp_path, "printf '\\xff\\xfe\\n'\nexit 0\n")
+    r = run_role(COLLECTOR, [], _cfg(tmp_path))
+    assert (r.status, r.exit_code) == (Status.SUCCESS, 0)
+
+
+def test_missing_cwd_is_start_error(tmp_path):
+    # cwd 不存在 → OSError → 启动失败（exit 5 / UNKNOWN），不崩栈。
+    _mk(tmp_path, "exit 0\n")
+    cfg = Config(str(tmp_path / "does-not-exist"), str(tmp_path), str(tmp_path / "x.duckdb"))
+    r = run_role(COLLECTOR, [], cfg)
+    assert (r.status, r.exit_code, r.child_exit_code) == (Status.UNKNOWN, 5, None)
+
+
+def test_programming_error_propagates_instead_of_masking(tmp_path, monkeypatch):
+    # 非 OSError 的编程错误不得伪装成"wrapper 启动失败"，必须带 traceback 崩出。
+    _mk(tmp_path, "exit 0\n")
+    import loop_engineering.runner as runner
+
+    def boom(*a, **k):
+        raise ValueError("programming bug")
+
+    monkeypatch.setattr(runner.subprocess, "run", boom)
+    with pytest.raises(ValueError):
+        run_role(COLLECTOR, [], _cfg(tmp_path))
