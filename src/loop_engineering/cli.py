@@ -13,8 +13,15 @@
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import sys
 from dataclasses import dataclass, field
+
+from .config import resolve_config
+from .roles import UnknownRoleError, get_role
+from .runner import run_role
 
 USAGE = (
     "usage: hermes-loop [全局选项] <role> [-- <原生角色参数...>]\n"
@@ -118,16 +125,74 @@ def parse_args(argv: list[str]) -> ParsedArgs:
     return result
 
 
+def _resolve(args: ParsedArgs):
+    """按「显式参数 > 环境变量 > 默认值」解析运行配置。"""
+    return resolve_config(
+        workdir=args.workdir, scripts=args.scripts, db=args.db
+    )
+
+
+def _run_single(args: ParsedArgs) -> int:
+    """``role`` 命令：解析角色 → 执行 wrapper → 输出结果。"""
+    try:
+        spec = get_role(args.roles[0])
+    except UnknownRoleError as exc:
+        # 未知角色视同用法错误：stderr + 退出码 2。
+        print(f"error: {exc}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 2
+
+    cfg = _resolve(args)
+    result = run_role(spec, args.child_args, cfg)
+
+    if args.json:
+        # 只输出恰好一行 JSON；子进程日志留在 child_stdout 字段内，绝不泄漏到 stdout。
+        print(json.dumps(result.to_dict(), ensure_ascii=False))
+    else:
+        sys.stdout.write(result.child_stdout or "")
+    return result.exit_code
+
+
+def _run_status(args: ParsedArgs) -> int:
+    """``status`` 命令：调用 ``quick_status.py``，透传其 stdout 与退出码。"""
+    cfg = _resolve(args)
+    # quick_status.py 无 ``.sh`` wrapper，故与生产 wrapper 一致地经 ``uv run python`` 调用。
+    command = ["uv", "run", "python", os.path.join(cfg.scripts_dir, "quick_status.py")]
+    if args.json:
+        # 全局 ``--json`` 由 status 处理器附加到子进程参数（R6）。
+        command.append("--json")
+
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, cwd=cfg.workdir
+        )
+    except OSError as exc:
+        print(f"error: 无法启动 quick_status.py：{exc}", file=sys.stderr)
+        return 5
+
+    if completed.stdout:
+        sys.stdout.write(completed.stdout)
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+    return completed.returncode
+
+
 def main(argv: list[str] | None = None) -> int:
-    """CLI 入口。用法错误返回 2；本任务其余命令返回占位 0。"""
+    """CLI 入口：解析 → 分发；用法错误返回 2。"""
     if argv is None:
         argv = sys.argv[1:]
     try:
-        parse_args(argv)
+        args = parse_args(argv)
     except UsageError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(USAGE, file=sys.stderr)
         return 2
+
+    if args.command == "role":
+        return _run_single(args)
+    if args.command == "status":
+        return _run_status(args)
+    # ``run`` 顺序执行的接线留给 Task 8；此处占位成功。
     return 0
 
 
