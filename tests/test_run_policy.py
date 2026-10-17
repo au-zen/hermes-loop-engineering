@@ -1,0 +1,132 @@
+# tests/test_run_policy.py
+"""Task 8：``run`` 顺序执行的成功/用法错误路径与 §9.2 策略表。
+
+R4（hermeticity）：每个 ``main(...)`` 都显式传 ``--workdir <tmp_path>``
+（外加 ``--scripts``/``--db``），确保不解析或触碰真实 ``~/.hermes``。
+
+本文件同时用 ``monkeypatch`` 直接驱动 ``run_sequence``，逐一锁定策略表的每个
+``Status`` 分支（含 R8 的 ``dry_run``，注册表内无角色能自然产出它）。
+"""
+import json
+
+import pytest
+
+from loop_engineering import cli
+from loop_engineering.cli import main
+from loop_engineering.config import Config
+from loop_engineering.output import Result, Status
+
+
+def _one_role_dir(tmp_path, body):
+    d = tmp_path / "scripts"; d.mkdir()
+    w = d / "cron_loop_collector.sh"; w.write_text("#!/bin/bash\n" + body); w.chmod(0o755)
+    return d
+
+
+def _argv(tmp_path, d, *extra):
+    return ["--scripts", str(d), "--db", str(tmp_path / "x"), "--workdir", str(tmp_path), *extra]
+
+
+def test_empty_sequence_is_usage_error(tmp_path, capsys):
+    assert main(["--scripts", str(tmp_path), "--workdir", str(tmp_path), "run"]) == 2
+
+
+def test_success_then_success_returns_zero(tmp_path):
+    d = _one_role_dir(tmp_path, "exit 0\n")
+    assert main(_argv(tmp_path, d, "run", "collector", "collector")) == 0
+
+
+def test_json_mode_emits_one_object_per_executed_step(tmp_path, capsys):
+    d = _one_role_dir(tmp_path, "exit 0\n")
+    rc = main(_argv(tmp_path, d, "--json", "run", "collector", "collector"))
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    objs = [json.loads(ln) for ln in lines]
+    assert rc == 0 and [o["role"] for o in objs] == ["collector", "collector"]
+
+
+# --- 直接驱动 run_sequence 的策略表测试（无需真实子进程）----------------------
+
+
+def _cfg(tmp_path) -> Config:
+    return Config(
+        workdir=str(tmp_path),
+        scripts_dir=str(tmp_path / "scripts"),
+        db_path=str(tmp_path / "x"),
+    )
+
+
+def _res(role: str, status: Status, exit_code: int) -> Result:
+    return Result(
+        role=role,
+        status=status,
+        child_exit_code=0,
+        exit_code=exit_code,
+        loop_status=None,
+        started_at="t0",
+        finished_at="t1",
+        error=None,
+        wrapper_path=None,
+        child_stdout=None,
+    )
+
+
+def _patch_run_role(monkeypatch, results):
+    """用脚本化结果替换 ``run_role``，返回记录被调用角色名的列表。"""
+    calls: list[str] = []
+
+    def fake(spec, child_args, cfg):
+        calls.append(spec.name)
+        return results[len(calls) - 1]
+
+    monkeypatch.setattr(cli, "run_role", fake)
+    return calls
+
+
+def test_run_sequence_empty_raises_usage_error(tmp_path):
+    with pytest.raises(cli.UsageError):
+        cli.run_sequence([], _cfg(tmp_path), False, False)
+
+
+def test_skipped_stops_sequence_even_with_zero_exit(monkeypatch, tmp_path):
+    calls = _patch_run_role(
+        monkeypatch,
+        [_res("collector", Status.SKIPPED, 0), _res("collector", Status.SUCCESS, 0)],
+    )
+    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
+    assert rc == 0 and len(calls) == 1
+
+
+def test_degraded_stops_by_default(monkeypatch, tmp_path):
+    calls = _patch_run_role(
+        monkeypatch,
+        [_res("collector", Status.DEGRADED, 4), _res("collector", Status.SUCCESS, 0)],
+    )
+    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
+    assert rc == 4 and len(calls) == 1
+
+
+def test_degraded_continues_with_flag(monkeypatch, tmp_path):
+    calls = _patch_run_role(
+        monkeypatch,
+        [_res("collector", Status.DEGRADED, 4), _res("collector", Status.SUCCESS, 0)],
+    )
+    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, True)
+    assert rc == 0 and len(calls) == 2
+
+
+def test_dry_run_stops_sequence(monkeypatch, tmp_path):  # R8
+    calls = _patch_run_role(
+        monkeypatch,
+        [_res("collector", Status.DRY_RUN, 0), _res("collector", Status.SUCCESS, 0)],
+    )
+    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
+    assert rc == 0 and len(calls) == 1
+
+
+def test_unknown_stops_and_returns_step_exit_code(monkeypatch, tmp_path):
+    calls = _patch_run_role(
+        monkeypatch,
+        [_res("collector", Status.UNKNOWN, 3), _res("collector", Status.SUCCESS, 0)],
+    )
+    rc = cli.run_sequence(["collector", "collector"], _cfg(tmp_path), False, False)
+    assert rc == 3 and len(calls) == 1

@@ -19,7 +19,8 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-from .config import resolve_config
+from .config import Config, resolve_config
+from .output import Status
 from .roles import UnknownRoleError, get_role
 from .runner import run_role
 
@@ -177,6 +178,72 @@ def _run_status(args: ParsedArgs) -> int:
     return completed.returncode
 
 
+def run_sequence(
+    roles: list[str],
+    cfg: Config,
+    emit_json: bool,
+    continue_on_degraded: bool,
+) -> int:
+    """按给定顺序执行角色序列并返回退出码（设计 §9，无默认流水线）。
+
+    语义：
+
+    * 空序列即用法错误（抛 :class:`UsageError`，由 ``main`` 映射为 ``2``）。
+    * 逐个同步执行：前一步结束后才启动下一步；**不重试、不跳过**。
+    * 每步调用 :func:`~loop_engineering.runner.run_role`，并将归一化
+      :class:`~loop_engineering.output.Result` 交给 §9.2 策略表裁决。
+    * ``emit_json`` 为真时，每个**已执行**步骤输出恰好一行 JSON（子进程日志
+      留在 ``child_stdout`` 字段内，不泄漏到 stdout）。
+
+    §9.2 策略表（含 R8）：
+
+    * ``success`` → 继续；
+    * ``degraded`` → 仅当 ``continue_on_degraded`` 为真时继续，否则停止；
+    * ``failure`` / ``unknown`` / ``skipped`` / ``dry_run`` → 停止（``dry_run``
+      不在 §9.2 表内，保守视为非成功）。
+
+    :param roles: 显式角色名序列（首个失败即终止后续角色）。
+    :param cfg: 解析后的运行配置。
+    :param emit_json: 是否以「每步一个 JSON 对象」输出。
+    :param continue_on_degraded: ``--continue-on-degraded`` 是否生效。
+    :return: 最后一个已执行步骤的 CLI 退出码（全 ``success`` 时为 ``0``）。
+    """
+    if not roles:
+        raise UsageError("run 至少需要一个角色（无默认流水线）")
+
+    last_exit_code = 0
+    for name in roles:
+        try:
+            spec = get_role(name)
+        except UnknownRoleError as exc:
+            # 未知角色视同用法错误：stderr + 退出码 2（与单角色路径一致）。
+            print(f"error: {exc}", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
+            return 2
+
+        result = run_role(spec, [], cfg)
+
+        if emit_json:
+            print(json.dumps(result.to_dict(), ensure_ascii=False))
+        else:
+            sys.stdout.write(result.child_stdout or "")
+
+        # §9.2 策略表：每个 Status 分支显式处理（R8 要求穷尽枚举）。
+        status = result.status
+        if status is Status.SUCCESS:
+            last_exit_code = result.exit_code
+            continue
+        if status is Status.DEGRADED:
+            if continue_on_degraded:
+                last_exit_code = result.exit_code
+                continue
+            return result.exit_code
+        # FAILURE / UNKNOWN / SKIPPED / DRY_RUN → 立即停止，透传该步退出码。
+        return result.exit_code
+
+    return last_exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI 入口：解析 → 分发；用法错误返回 2。"""
     if argv is None:
@@ -192,8 +259,16 @@ def main(argv: list[str] | None = None) -> int:
         return _run_single(args)
     if args.command == "status":
         return _run_status(args)
-    # ``run`` 顺序执行的接线留给 Task 8；此处占位成功。
-    return 0
+    if args.command == "run":
+        try:
+            return run_sequence(
+                args.roles, _resolve(args), args.json, args.continue_on_degraded
+            )
+        except UsageError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            print(USAGE, file=sys.stderr)
+            return 2
+    raise AssertionError(f"未知命令：{args.command!r}")  # pragma: no cover
 
 
 if __name__ == "__main__":  # pragma: no cover
