@@ -112,6 +112,9 @@ def parse_args(argv: list[str]) -> ParsedArgs:
         result.roles.append(token)
         index += 1
 
+    if not seen_command:
+        raise UsageError("缺少命令：需要 <role>、run 或 status")
+
     return result
 
 

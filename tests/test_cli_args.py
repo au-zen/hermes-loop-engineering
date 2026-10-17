@@ -30,3 +30,9 @@ def test_global_flag_after_role_is_usage_error():
 def test_empty_argv_is_usage_error():
     with pytest.raises(UsageError):
         parse_args([])
+
+def test_globals_only_is_usage_error():
+    with pytest.raises(UsageError):
+        parse_args(["--json"])
+    with pytest.raises(UsageError):
+        parse_args(["--workdir", "/w"])
