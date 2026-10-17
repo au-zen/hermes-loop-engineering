@@ -1,9 +1,8 @@
 # hermes-loop-engineering
 
-Hermes Loop Engineering 的**统一 CLI 薄调度器**（独立 repo）。
+Hermes Loop 的统一 CLI 薄调度器。
 
-把现有 loop 角色脚本（no_agent 层）收敛为一个统一入口 `loop`，
-不改变底层脚本行为、不迁移 cron、不重新实现 Agent 调用。
+把一组 loop 角色脚本收敛为单一入口 `hermes-loop`：**不改变底层脚本行为、不迁移调度配置、不重新实现 Agent 调用**。CLI 只负责三件事——解析路径、启动前校验、把执行结果如实转换为退出码与结构化输出。
 
 ## 状态
 
@@ -20,11 +19,16 @@ uv sync
 ```bash
 hermes-loop <role> [-- <原生角色参数...>]   # 执行单个角色
 hermes-loop run <role> [<role>...]          # 顺序执行角色序列（无默认流水线）
-hermes-loop status                          # 调用 quick_status.py 查看状态
+hermes-loop status                          # 调用配置的状态脚本查看摘要
 ```
 
-全局选项（必须出现在命令之前）：`--json`、`--workdir`、`--scripts`、`--db`、
+### 全局选项
+
+全局选项必须出现在命令之前：`--json`、`--workdir`、`--scripts`、`--db`、
 `--continue-on-degraded`。
+
+- `--` 之后的参数**原样透传**给底层脚本。
+- 未使用 `--` 时，命令之后出现的未识别选项按**用法错误**处理（不猜测归属）。
 
 ### 环境变量
 
@@ -59,13 +63,12 @@ hermes-loop status                          # 调用 quick_status.py 查看状�
 ### v1 范围限制
 
 * 不设超时（无 timeout）。
-* 仅 `collector` 标记为 `run_eligible`。
-* `status` 以 `uv run python quick_status.py` 调用（无 `.sh` wrapper）。
+* `status` 以 `uv run python` 调用配置的状态脚本（无 `.sh` wrapper）。
 * SIGINT（`130`）不负责清理子进程，超出 v1 范围。
 
-## 边界（硬约束）
+## 约定
 
-1. `~/.hermes/scripts/` 是**唯一生产脚本来源**；`automation/loop-engineering` skill 内的副本仅作参考，不得覆盖生产脚本。
-2. 首版只包装**已审核的 no_agent 角色**；`analyzer` / `reviewer` / `digest` 等纯 Agent 角色继续由 cron + prompt 驱动。
-3. 底层 cron 契约（`LOOP_STATUS` 协议、`exit 0` 惯例）**保持不变**；状态在 CLI 边界转换。
-4. DuckDB 默认 `~/.hermes/db/loop_state.duckdb`，禁止使用根目录陈旧库。
+1. 状态在 CLI 边界转换；底层脚本的状态约定与退出码惯例**保持不变**。
+2. `--workdir` / `--scripts` / `--db` 决定所有路径；CLI 不按角色名动态推导路径，
+   只使用注册表中固定登记的映射。
+3. 启动子进程前校验 wrapper 是否存在且可执行，否则以启动失败退出（`5`）。
