@@ -1,5 +1,5 @@
 import pytest
-from loop_engineering.cli import parse_args, UsageError
+from loop_engineering.cli import main, parse_args, UsageError
 
 def test_globals_before_role():
     p = parse_args(["--json", "--workdir", "/w", "verify"])
@@ -36,3 +36,12 @@ def test_globals_only_is_usage_error():
         parse_args(["--json"])
     with pytest.raises(UsageError):
         parse_args(["--workdir", "/w"])
+
+
+def test_main_usage_error_returns_2_and_logs_stderr(capsys):
+    # Fix 8：main() 的用法错误契约——退出码 2 且 stderr 出现 `error:` 行。
+    rc = main(["--nope"])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "error:" in captured.err
+    assert captured.out == ""

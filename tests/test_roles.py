@@ -1,5 +1,34 @@
 import pytest
-from loop_engineering.roles import ROLES, get_role, UnknownRoleError
+from loop_engineering.roles import (
+    BUSINESS_SIGNALS,
+    ROLES,
+    get_role,
+    UnknownRoleError,
+)
+
+#: 全部 10 个角色 → wrapper 文件名的精确映射（逐项锁死，防止动态拼接回归）。
+EXPECTED_WRAPPERS = {
+    "collector": "cron_loop_collector.sh",
+    "log_scanner": "loop_hermes_log_scanner.sh",
+    "canary": "loop_canary_injector.sh",
+    "verify": "loop_auto_verify.sh",
+    "fixer": "loop_auto_fixer.sh",
+    "decide": "loop_auto_decide.sh",
+    "learn": "loop_learn.sh",
+    "notify": "_loop_notify.sh",
+    "trust_audit": "loop_trust_audit.sh",
+    "daily_diagnostic": "_cron_loop_diag.sh",
+}
+
+
+def test_all_role_wrappers_match_expected_table():
+    assert {n: r.wrapper for n, r in ROLES.items()} == EXPECTED_WRAPPERS
+
+
+def test_registry_is_self_consistent():
+    for name, spec in ROLES.items():
+        assert spec.name == name
+        assert spec.business_signal in BUSINESS_SIGNALS
 
 def test_registry_has_exactly_ten_roles():
     assert set(ROLES) == {
