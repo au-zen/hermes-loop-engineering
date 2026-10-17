@@ -4,6 +4,40 @@ Hermes Loop 的统一 CLI 薄调度器。
 
 把一组 loop 角色脚本收敛为单一入口 `hermes-loop`：**不改变底层脚本行为、不迁移调度配置、不重新实现 Agent 调用**。CLI 只负责三件事——解析路径、启动前校验、把执行结果如实转换为退出码与结构化输出。
 
+## Hermes Skill 使用
+
+本仓库作为 Hermes skill 部署。安装：
+
+```bash
+# 1. 克隆到 Hermes skills 目录
+git clone <repo-url> ~/.hermes/skills/automation/hermes-loop-engineering
+
+# 2. 安装依赖
+cd ~/.hermes/skills/automation/hermes-loop-engineering && uv sync
+
+# 3. 全局安装 CLI（可选，用于手动调试）
+uv tool install .
+```
+
+### Cron Job 配置
+
+```bash
+# no_agent job（通过 hermes-loop-*.sh wrapper 调用）
+hermes cron edit <job_id> --script "hermes-loop-collector.sh"
+
+# LLM agent job（通过 skill + prompt 驱动）
+hermes cron edit <job_id> --skill "automation/hermes-loop-engineering"
+```
+
+### 手动执行
+
+```bash
+hermes-loop <role> [-- <args...>]   # 执行单个角色
+hermes-loop run <role> [<role>...]  # 顺序执行角色序列
+hermes-loop status                  # 查看状态摘要
+hermes-loop --json status           # JSON 输出
+```
+
 ## 状态
 
 **已实现（v1）。** 单角色执行、`run` 顺序执行与 `status` 均已接线并通过测试。
