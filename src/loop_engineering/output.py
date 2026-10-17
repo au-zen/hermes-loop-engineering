@@ -56,13 +56,21 @@ def parse_loop_status(stdout: str) -> str | None:
     """返回 ``stdout`` 中 **最后一条** ``LOOP_STATUS`` 哨兵的原始值。
 
     末条生效与既有 ``底层 reader`` 的 ``vals[-1]`` 行为一致。
-    无匹配时返回 ``None``。
+    词表说明行（取值后含 ``|``，如 ``LOOP_STATUS: ok|fallback_ok|degraded``）
+    不是真实哨兵，予以跳过（issue #1）。无匹配时返回 ``None``。
 
     :param stdout: 子进程标准输出。
     :return: 哨兵原始文本（如 ``"dry-run"``），或 ``None``。
     """
-    matches = _LOOP_STATUS_RE.findall(stdout)
-    return matches[-1] if matches else None
+    last: str | None = None
+    for match in _LOOP_STATUS_RE.finditer(stdout):
+        line_end = stdout.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(stdout)
+        if "|" in stdout[match.end() : line_end]:
+            continue
+        last = match.group(1)
+    return last
 
 
 def normalize_status(
@@ -84,6 +92,9 @@ def normalize_status(
 
     # 子进程成功（退出码 0），按角色的业务信号来源分支。
     if business_signal == "exit_code":
+        # 不把失败伪装成成功：即使退出码为 0，显式 `failed` 哨兵也按失败处理。
+        if loop_status == "failed":
+            return (Status.FAILURE, 1)
         return (Status.SUCCESS, 0)
     if business_signal in ("none", "candidate"):
         return (Status.UNKNOWN, EXIT_UNKNOWN)
