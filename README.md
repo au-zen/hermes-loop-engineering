@@ -63,8 +63,6 @@ hermes-loop status                          # 调用 quick_status.py 查看状�
 * `status` 以 `uv run python quick_status.py` 调用（无 `.sh` wrapper）。
 * SIGINT（`130`）不负责清理子进程，超出 v1 范围。
 
-→ [`docs/superpowers/specs/2026-10-17-hermes-loop-engineering-design.md`](docs/superpowers/specs/2026-10-17-hermes-loop-engineering-design.md)
-
 ## 边界（硬约束）
 
 1. `~/.hermes/scripts/` 是**唯一生产脚本来源**；`automation/loop-engineering` skill 内的副本仅作参考，不得覆盖生产脚本。
