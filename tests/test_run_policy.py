@@ -31,17 +31,33 @@ def test_empty_sequence_is_usage_error(tmp_path, capsys):
     assert main(["--scripts", str(tmp_path), "--workdir", str(tmp_path), "run"]) == 2
 
 
+def test_unknown_role_is_validated_before_any_role_runs(tmp_path, capsys):
+    # Fix 3：第二个角色拼写错误时，第一个角色绝不能被先执行（无半执行副作用）。
+    d = tmp_path / "scripts"; d.mkdir()
+    w = d / "cron_loop_collector.sh"
+    w.write_text(f"#!/bin/bash\ntouch {tmp_path}/ran1; exit 0\n")
+    w.chmod(0o755)
+    rc = main(_argv(tmp_path, d, "run", "collector", "nope_typo"))
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert not (tmp_path / "ran1").exists()
+    assert "error:" in captured.err
+
+
 def test_success_then_success_returns_zero(tmp_path):
     d = _one_role_dir(tmp_path, "exit 0\n")
     assert main(_argv(tmp_path, d, "run", "collector", "collector")) == 0
 
 
-def test_json_mode_emits_one_object_per_executed_step(tmp_path, capsys):
+def test_json_mode_emits_single_run_object(tmp_path, capsys):
     d = _one_role_dir(tmp_path, "exit 0\n")
     rc = main(_argv(tmp_path, d, "--json", "run", "collector", "collector"))
-    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
-    objs = [json.loads(ln) for ln in lines]
-    assert rc == 0 and [o["role"] for o in objs] == ["collector", "collector"]
+    out = capsys.readouterr().out
+    obj = json.loads(out)  # R9：整个 stdout 必须是恰好一个可解析 JSON 对象
+    assert rc == 0
+    assert obj["command"] == "run"
+    assert len(obj["steps"]) == 2
+    assert [s["role"] for s in obj["steps"]] == ["collector", "collector"]
 
 
 # --- 直接驱动 run_sequence 的策略表测试（无需真实子进程）----------------------

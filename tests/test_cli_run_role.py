@@ -45,3 +45,13 @@ def test_json_mode_still_emits_json_on_failure(tmp_path, capsys):
 
 def test_unknown_role_exit_2(tmp_path, capsys):
     assert main(["--scripts", str(tmp_path), "--workdir", str(tmp_path), "analyzer"]) == 2
+
+
+def test_start_error_is_surfaced_on_stderr_in_default_mode(tmp_path, capsys):
+    # Fix 2：wrapper 缺失（启动前失败）在默认模式下也必须把 error 打到 stderr，
+    # 同时透传退出码 5，且绝不写 stdout。
+    rc = main(["--scripts", str(tmp_path), "--workdir", str(tmp_path), "verify"])
+    captured = capsys.readouterr()
+    assert rc == 5
+    assert "error:" in captured.err
+    assert captured.out == ""

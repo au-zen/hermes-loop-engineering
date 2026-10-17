@@ -19,7 +19,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-from .config import Config, resolve_config
+from .config import Config, child_env, resolve_config
 from .output import Status
 from .roles import UnknownRoleError, get_role
 from .runner import run_role
@@ -151,6 +151,9 @@ def _run_single(args: ParsedArgs) -> int:
         print(json.dumps(result.to_dict(), ensure_ascii=False))
     else:
         sys.stdout.write(result.child_stdout or "")
+        if result.error:
+            # 启动前/启动期失败在默认模式下也必须在 stderr 可见（退出码不变）。
+            print(f"error: {result.error}", file=sys.stderr)
     return result.exit_code
 
 
@@ -165,7 +168,7 @@ def _run_status(args: ParsedArgs) -> int:
 
     try:
         completed = subprocess.run(
-            command, capture_output=True, text=True, cwd=cfg.workdir
+            command, capture_output=True, text=True, env=child_env(cfg), cwd=cfg.workdir
         )
     except OSError as exc:
         print(f"error: 无法启动 quick_status.py：{exc}", file=sys.stderr)
@@ -175,6 +178,9 @@ def _run_status(args: ParsedArgs) -> int:
         sys.stdout.write(completed.stdout)
     if completed.stderr:
         sys.stderr.write(completed.stderr)
+    # 信号死亡（returncode < 0）按 128 + N 约定映射，绝不透传负数。
+    if completed.returncode < 0:
+        return 128 + (-completed.returncode)
     return completed.returncode
 
 
@@ -189,11 +195,12 @@ def run_sequence(
     语义：
 
     * 空序列即用法错误（抛 :class:`UsageError`，由 ``main`` 映射为 ``2``）。
+    * **所有角色在执行前整体校验**：任一未知角色立即 stderr + ``2``，
+      绝不先执行前面的角色（避免半执行副作用）。
     * 逐个同步执行：前一步结束后才启动下一步；**不重试、不跳过**。
-    * 每步调用 :func:`~loop_engineering.runner.run_role`，并将归一化
-      :class:`~loop_engineering.output.Result` 交给 §9.2 策略表裁决。
-    * ``emit_json`` 为真时，每个**已执行**步骤输出恰好一行 JSON（子进程日志
-      留在 ``child_stdout`` 字段内，不泄漏到 stdout）。
+    * ``emit_json`` 为真时，输出**恰好一个** JSON 对象
+      ``{"command": "run", "steps": [<result.to_dict()>, ...]}``
+      （R9；含最终停止的那一步）。``steps`` 之外的任何内容都不写 stdout。
 
     §9.2 策略表（含 R8）：
 
@@ -204,28 +211,31 @@ def run_sequence(
 
     :param roles: 显式角色名序列（首个失败即终止后续角色）。
     :param cfg: 解析后的运行配置。
-    :param emit_json: 是否以「每步一个 JSON 对象」输出。
+    :param emit_json: 是否以单个 JSON 对象输出全部步骤。
     :param continue_on_degraded: ``--continue-on-degraded`` 是否生效。
     :return: 最后一个已执行步骤的 CLI 退出码（全 ``success`` 时为 ``0``）。
     """
     if not roles:
         raise UsageError("run 至少需要一个角色（无默认流水线）")
 
-    last_exit_code = 0
+    # Fix 3：先整体校验，任何未知角色在执行任何角色之前失败（退出码 2）。
+    specs = []
     for name in roles:
         try:
-            spec = get_role(name)
+            specs.append(get_role(name))
         except UnknownRoleError as exc:
-            # 未知角色视同用法错误：stderr + 退出码 2（与单角色路径一致）。
             print(f"error: {exc}", file=sys.stderr)
             print(USAGE, file=sys.stderr)
             return 2
 
+    last_exit_code = 0
+    steps = []
+    for spec in specs:
         result = run_role(spec, [], cfg)
+        steps.append(result)
 
-        if emit_json:
-            print(json.dumps(result.to_dict(), ensure_ascii=False))
-        else:
+        if not emit_json:
+            # 默认模式仍逐步透传子进程 stdout。
             sys.stdout.write(result.child_stdout or "")
 
         # §9.2 策略表：每个 Status 分支显式处理（R8 要求穷尽枚举）。
@@ -233,14 +243,17 @@ def run_sequence(
         if status is Status.SUCCESS:
             last_exit_code = result.exit_code
             continue
-        if status is Status.DEGRADED:
-            if continue_on_degraded:
-                last_exit_code = result.exit_code
-                continue
-            return result.exit_code
+        if status is Status.DEGRADED and continue_on_degraded:
+            last_exit_code = result.exit_code
+            continue
         # FAILURE / UNKNOWN / SKIPPED / DRY_RUN → 立即停止，透传该步退出码。
-        return result.exit_code
+        last_exit_code = result.exit_code
+        break
 
+    if emit_json:
+        # R9：恰好一个可解析 JSON 对象，含全部已执行步骤（含停止步）。
+        payload = {"command": "run", "steps": [r.to_dict() for r in steps]}
+        print(json.dumps(payload, ensure_ascii=False))
     return last_exit_code
 
 
@@ -255,20 +268,25 @@ def main(argv: list[str] | None = None) -> int:
         print(USAGE, file=sys.stderr)
         return 2
 
-    if args.command == "role":
-        return _run_single(args)
-    if args.command == "status":
-        return _run_status(args)
-    if args.command == "run":
-        try:
-            return run_sequence(
-                args.roles, _resolve(args), args.json, args.continue_on_degraded
-            )
-        except UsageError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            print(USAGE, file=sys.stderr)
-            return 2
-    raise AssertionError(f"未知命令：{args.command!r}")  # pragma: no cover
+    try:
+        if args.command == "role":
+            return _run_single(args)
+        if args.command == "status":
+            return _run_status(args)
+        if args.command == "run":
+            try:
+                return run_sequence(
+                    args.roles, _resolve(args), args.json, args.continue_on_degraded
+                )
+            except UsageError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                print(USAGE, file=sys.stderr)
+                return 2
+        raise AssertionError(f"未知命令：{args.command!r}")  # pragma: no cover
+    except KeyboardInterrupt:
+        # 设计 §12：SIGINT → 130。子进程清理超出 v1 范围（见 README）。
+        print("error: interrupted（SIGINT）", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":  # pragma: no cover
