@@ -4,6 +4,57 @@ Hermes Loop 的统一 CLI 薄调度器。
 
 把一组 loop 角色脚本收敛为单一入口 `hermes-loop`：**不改变底层脚本行为、不迁移调度配置、不重新实现 Agent 调用**。CLI 只负责三件事——解析路径、启动前校验、把执行结果如实转换为退出码与结构化输出。
 
+## 项目概览
+
+Hermes Loop 是一个自改进工程循环：多个角色（collector、fixer、verify、decide、learn 等）
+按调度周期性执行，形成「采集 → 修复 → 验证 → 决策 → 学习」的闭环。本仓库是这组角色脚本的
+**统一 CLI 入口**——把散落的 wrapper 收敛为单一命令 `hermes-loop`，使 cron 调度、状态判定、
+结构化输出有一个一致的处理层。
+
+### 角色生态
+
+10 个白名单角色构成 loop 的各个环节：
+
+| 角色 | 职责 |
+|---|---|
+| `collector` | 采集信号（exit_code 判定） |
+| `log_scanner` | 扫描日志 |
+| `canary` | 金丝雀注入 |
+| `verify` | 自动验证 |
+| `fixer` | 自动修复 |
+| `decide` | 决策 |
+| `learn` | 学习 |
+| `notify` | 通知 |
+| `trust_audit` | 信任审计（exit_code 判定） |
+| `daily_diagnostic` | 每日诊断 |
+
+纯 Agent 角色（`analyzer`/`reviewer`/`digest`）与无 cron 绑定的手动工具
+（`reality_check`/`integrity`）不在 CLI 注册表内。
+
+### 架构
+
+```
+cron / 手动
+  │
+  ▼
+hermes-loop-<role>.sh wrapper（位于 ~/.hermes/scripts/）
+  │
+  ▼
+hermes-loop <role>（本仓库 CLI）
+  │
+  ▼
+loop_engineering.runner.run_role()
+  │
+  ▼
+角色脚本（子进程）
+  │
+  ▼
+归一化结果 → 退出码 / --json 输出
+```
+
+wrapper 是连接 cron 与 CLI 的薄壳：它 `exec hermes-loop <role>`，把 loop 环境变量
+透传给子进程。CLI 不重新实现角色逻辑，也不管理 loop 状态。
+
 ## 作为 Hermes Skill / Tap 使用
 
 本仓库同时是一个 Hermes skill tap：skill 目录为 `skills/hermes-loop-engineering/`（**只含 `SKILL.md`，不含 prompts**）。
@@ -63,6 +114,10 @@ hermes-loop status                          # 调用配置的状态脚本查看�
 全局选项必须出现在命令之前：`--json`、`--workdir`、`--scripts`、`--db`、
 `--continue-on-degraded`。
 
+- `--continue-on-degraded`：仅影响 `run` 命令。默认情况下，`run` 遇到
+  `degraded` 状态的角色会停止执行后续角色；指定此选项后，`degraded` 视为可继续，
+  序列会执行完全部角色。单角色 `role` 命令中此选项无效。
+
 - 取值类选项支持 `--opt value` 与 `--opt=value` 两种写法；`--opt value` 的取值
   **不能以 `-` 开头**（避免吞掉下一个 flag），需要时改用 `--opt=value`。
 - `--` 之后的参数**原样透传**给底层脚本，且**仅 `role` 命令支持**。
@@ -99,11 +154,11 @@ hermes-loop status                          # 调用配置的状态脚本查看�
 
 | 角色 | 信号来源 | 说明 |
 |---|---|---|
-| `collector` | `exit_code` | 唯一以脚本退出码判定的角色；失败路径确有非 0 退出 |
-| `fixer`、`trust_audit` | `candidate` | 无可信业务信号 → 一律 `unknown`(3) |
-| 其余 7 个 | `none` | 无可信业务信号 → 一律 `unknown`(3) |
+| `collector`、`trust_audit` | `exit_code` | 以脚本退出码判定的角色；失败路径确有非 0 退出 |
+| `fixer` | `candidate` | 无可信业务信号 → 一律 `unknown`(3) |
+| 其余 8 个 | `none` | 无可信业务信号 → 一律 `unknown`(3) |
 
-**推论：`run` 只适合 `exit_code` 角色（v1 仅 `collector`）。** 其余角色放进 `run`
+**推论：`run` 只适合 `exit_code` 角色（v1 为 `collector` 与 `trust_audit`）。** 其余角色放进 `run`
 会因 `unknown` 立即停止并返回 `3`——这是刻意的「绝不把未知当成功」。
 
 ### `--json` 契约
