@@ -42,9 +42,11 @@ def test_collector_is_exit_code_signal():
     assert r.wrapper == "cron_loop_collector.sh"
     assert r.business_signal == "exit_code"
 
-def test_fixer_and_trust_audit_are_candidate():
+def test_fixer_is_candidate():
     assert ROLES["fixer"].business_signal == "candidate"
-    assert ROLES["trust_audit"].business_signal == "candidate"
+
+def test_trust_audit_is_exit_code():
+    assert ROLES["trust_audit"].business_signal == "exit_code"
 
 def test_remaining_roles_have_no_signal():
     for n in ["log_scanner","canary","verify","decide","learn","notify","daily_diagnostic"]:

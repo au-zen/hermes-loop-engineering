@@ -87,7 +87,7 @@ ROLES: dict[str, RoleSpec] = {
     "trust_audit": RoleSpec(
         name="trust_audit",
         wrapper="loop_trust_audit.sh",
-        business_signal="candidate",
+        business_signal="exit_code",
     ),
     "daily_diagnostic": RoleSpec(
         name="daily_diagnostic",
